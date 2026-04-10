@@ -15,6 +15,7 @@ WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 ENV DATABASE_URL="postgresql://build:build@localhost:5432/build"
+ENV NEXT_PHASE="phase-production-build"
 RUN npm run build
 
 # Runner (produção)
