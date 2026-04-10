@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic'
+
 /**
  * ZapOne - Webhook WhatsApp (Meta Cloud API)
  * GET  = verificação do webhook
