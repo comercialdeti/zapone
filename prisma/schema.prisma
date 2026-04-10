@@ -1,0 +1,315 @@
+// ZapOne - Schema do Banco de Dados
+// Multi-tenant WhatsApp SaaS Platform
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── TENANT (Empresa/Cliente) ───────────────────────────────────────────────
+
+model Tenant {
+  id          String   @id @default(cuid())
+  name        String
+  slug        String   @unique
+  plan        Plan     @default(FREE)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Configurações WhatsApp
+  waPhoneNumberId     String?
+  waBusinessAccountId String?
+  waAccessToken       String?
+  waWebhookSecret     String?
+
+  // Relações
+  users         User[]
+  contacts      Contact[]
+  conversations Conversation[]
+  messages      Message[]
+  blastCampaigns BlastCampaign[]
+  tags          Tag[]
+  teams         Team[]
+
+  @@map("tenants")
+}
+
+enum Plan {
+  FREE
+  STARTER
+  PRO
+  ENTERPRISE
+}
+
+// ─── USUÁRIO / AGENTE ────────────────────────────────────────────────────────
+
+model User {
+  id        String   @id @default(cuid())
+  name      String
+  email     String
+  password  String
+  avatar    String?
+  role      UserRole @default(AGENT)
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  teamMembers     TeamMember[]
+  conversations   ConversationAssignment[]
+  messages        Message[]
+  sessions        Session[]
+
+  @@unique([email, tenantId])
+  @@map("users")
+}
+
+enum UserRole {
+  OWNER
+  ADMIN
+  SUPERVISOR
+  AGENT
+}
+
+model Session {
+  id        String   @id @default(cuid())
+  token     String   @unique
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@map("sessions")
+}
+
+// ─── EQUIPES ─────────────────────────────────────────────────────────────────
+
+model Team {
+  id        String   @id @default(cuid())
+  name      String
+  tenantId  String
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  members       TeamMember[]
+  conversations Conversation[]
+
+  @@map("teams")
+}
+
+model TeamMember {
+  id     String @id @default(cuid())
+  teamId String
+  userId String
+  team   Team   @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([teamId, userId])
+  @@map("team_members")
+}
+
+// ─── CONTATO ─────────────────────────────────────────────────────────────────
+
+model Contact {
+  id          String   @id @default(cuid())
+  phone       String
+  name        String?
+  email       String?
+  avatar      String?
+  notes       String?
+  isBlocked   Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  conversations  Conversation[]
+  tags           ContactTag[]
+  blastRecipients BlastRecipient[]
+
+  @@unique([phone, tenantId])
+  @@map("contacts")
+}
+
+// ─── TAGS ────────────────────────────────────────────────────────────────────
+
+model Tag {
+  id       String @id @default(cuid())
+  name     String
+  color    String @default("#6366f1")
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  contacts ContactTag[]
+
+  @@unique([name, tenantId])
+  @@map("tags")
+}
+
+model ContactTag {
+  contactId String
+  tagId     String
+  contact   Contact @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  tag       Tag     @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@id([contactId, tagId])
+  @@map("contact_tags")
+}
+
+// ─── CONVERSA (Inbox + Kanban) ────────────────────────────────────────────────
+
+model Conversation {
+  id          String             @id @default(cuid())
+  status      ConversationStatus @default(OPEN)
+  kanbanCol   KanbanColumn       @default(NEW)
+  unreadCount Int                @default(0)
+  lastMessageAt DateTime?
+  createdAt   DateTime           @default(now())
+  updatedAt   DateTime           @updatedAt
+
+  tenantId  String
+  tenant    Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  contactId String
+  contact   Contact @relation(fields: [contactId], references: [id])
+
+  teamId String?
+  team   Team?   @relation(fields: [teamId], references: [id])
+
+  messages    Message[]
+  assignments ConversationAssignment[]
+
+  @@map("conversations")
+}
+
+enum ConversationStatus {
+  OPEN
+  PENDING
+  RESOLVED
+  SNOOZED
+}
+
+enum KanbanColumn {
+  NEW
+  IN_PROGRESS
+  WAITING
+  RESOLVED
+}
+
+model ConversationAssignment {
+  id             String       @id @default(cuid())
+  conversationId String
+  userId         String
+  assignedAt     DateTime     @default(now())
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  user           User         @relation(fields: [userId], references: [id])
+
+  @@map("conversation_assignments")
+}
+
+// ─── MENSAGEM ─────────────────────────────────────────────────────────────────
+
+model Message {
+  id          String      @id @default(cuid())
+  waMessageId String?     @unique
+  direction   Direction
+  type        MessageType @default(TEXT)
+  content     String
+  mediaUrl    String?
+  mediaType   String?
+  status      MsgStatus   @default(SENT)
+  isRead      Boolean     @default(false)
+  sentAt      DateTime    @default(now())
+
+  tenantId       String
+  tenant         Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  conversationId String
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  senderId String?
+  sender   User?   @relation(fields: [senderId], references: [id])
+
+  @@map("messages")
+}
+
+enum Direction {
+  INBOUND
+  OUTBOUND
+}
+
+enum MessageType {
+  TEXT
+  IMAGE
+  VIDEO
+  AUDIO
+  DOCUMENT
+  STICKER
+  LOCATION
+  TEMPLATE
+}
+
+enum MsgStatus {
+  QUEUED
+  SENT
+  DELIVERED
+  READ
+  FAILED
+}
+
+// ─── DISPARO EM MASSA ─────────────────────────────────────────────────────────
+
+model BlastCampaign {
+  id          String        @id @default(cuid())
+  name        String
+  message     String
+  mediaUrl    String?
+  status      BlastStatus   @default(DRAFT)
+  scheduledAt DateTime?
+  startedAt   DateTime?
+  finishedAt  DateTime?
+  totalCount  Int           @default(0)
+  sentCount   Int           @default(0)
+  failedCount Int           @default(0)
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  recipients BlastRecipient[]
+
+  @@map("blast_campaigns")
+}
+
+enum BlastStatus {
+  DRAFT
+  SCHEDULED
+  RUNNING
+  PAUSED
+  FINISHED
+  FAILED
+}
+
+model BlastRecipient {
+  id         String      @id @default(cuid())
+  phone      String
+  status     MsgStatus   @default(QUEUED)
+  sentAt     DateTime?
+  error      String?
+
+  campaignId String
+  campaign   BlastCampaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+  contactId String?
+  contact   Contact? @relation(fields: [contactId], references: [id])
+
+  @@map("blast_recipients")
+}
