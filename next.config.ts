@@ -5,7 +5,14 @@ const nextConfig: NextConfig = {
   images: {
     domains: ['zapone.pt'],
   },
-  serverExternalPackages: ['@prisma/client', 'bcryptjs'],
+  serverExternalPackages: [
+    '@prisma/client',
+    'bcryptjs',
+    'bullmq',
+    'ioredis',
+    'socket.io',
+    'socket.io-client',
+  ],
   typescript: {
     ignoreBuildErrors: true,
   },

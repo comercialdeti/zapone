@@ -8,19 +8,32 @@ import { prisma } from '@/lib/prisma'
 import { redis } from '@/lib/redis'
 import { sendTextMessage, sendMediaMessage } from '@/lib/whatsapp'
 
-// ─── Filas ────────────────────────────────────────────────────────────────────
+// ─── Filas (inicialização lazy para não conectar durante o build) ─────────────
 
-export const blastQueue = new Queue('blast', {
-  connection: redis,
-  defaultJobOptions: {
-    attempts: 3,
-    backoff: { type: 'exponential', delay: 5000 },
-    removeOnComplete: 100,
-    removeOnFail: 50,
-  },
-})
+let _blastQueue: Queue | null = null
+let _blastQueueEvents: QueueEvents | null = null
 
-export const blastQueueEvents = new QueueEvents('blast', { connection: redis })
+export function getBlastQueue(): Queue {
+  if (!_blastQueue) {
+    _blastQueue = new Queue('blast', {
+      connection: redis,
+      defaultJobOptions: {
+        attempts: 3,
+        backoff: { type: 'exponential', delay: 5000 },
+        removeOnComplete: 100,
+        removeOnFail: 50,
+      },
+    })
+  }
+  return _blastQueue
+}
+
+export function getBlastQueueEvents(): QueueEvents {
+  if (!_blastQueueEvents) {
+    _blastQueueEvents = new QueueEvents('blast', { connection: redis })
+  }
+  return _blastQueueEvents
+}
 
 // ─── Worker ───────────────────────────────────────────────────────────────────
 
@@ -136,7 +149,7 @@ export async function scheduleCampaign(campaignId: string, scheduledAt?: Date) {
     },
   }))
 
-  await blastQueue.addBulk(jobs)
+  await getBlastQueue().addBulk(jobs)
 
   // Atualiza status da campanha
   await prisma.blastCampaign.update({
